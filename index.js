@@ -1,31 +1,37 @@
+require('dotenv').config();
 const { Storage } = require('@google-cloud/storage');
-require('dotenv').config(); // Load environment variables from .env file
 
+async function getLatestSignedUrlById(id) {
+  try {
+    const storage = new Storage();
+    const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
+    
+    const [matchingFiles] = await bucket.getFiles({ prefix: `${id}` });
 
-// Replace with your own GCP project ID, GCS bucket name, and PDF file name.
-const projectId = 'short-signed-url';
-const bucketName = 'temp-bucket-001';
-const fileName = 'dummmy.pdf'; // Include the path to your PDF file within the bucket
+    if (matchingFiles.length === 0) return 'PDF not found';
 
-// Initialize a GCS client
-const storage = new Storage({
-  projectId: projectId,
-});
+    let highestVersion = 0;
+    matchingFiles.forEach((file) => {
+      const match = file.name.match(/\((\d+)\)\.pdf$/);
+      const version = match ? parseInt(match[1], 10) : 0;
+      if (version > highestVersion) highestVersion = version;
+    });
 
-// Create a reference to the PDF file
-const bucket = storage.bucket(bucketName);
-const file = bucket.file(fileName);
+    const latestVersionFileName = highestVersion > 0 ? `${id} (${highestVersion}).pdf` : `${id}.pdf`;
+    const latestVersionFile = matchingFiles.find((file) => file.name === latestVersionFileName);
 
-// Generate a signed URL that is valid for 15 minutes
-const options = {
-  action: 'read',
-  expires: Date.now() + 1 * 60 * 1000, // 15 minutes from now
-};
+    if (!latestVersionFile) return 'Latest version file not found';
 
-file.getSignedUrl(options)
-  .then(([signedUrl]) => {
-    console.log('Signed URL for the PDF:', signedUrl);
-  })
-  .catch((err) => {
-    console.error('Error generating signed URL:', err);
-  });
+    const [signedUrl] = await latestVersionFile.getSignedUrl({ action: 'read', expires: Date.now() + 1 * 60 * 1000 });
+
+    return signedUrl;
+  } catch (error) {
+    console.error('Error:', error);
+    return 'Error generating signed URL';
+  }
+}
+
+const id = '103';
+getLatestSignedUrlById(id)
+  .then((signedUrl) => console.log('Latest Signed URL:', signedUrl))
+  .catch((err) => console.error(err));
